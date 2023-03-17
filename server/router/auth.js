@@ -1,130 +1,183 @@
-const jwt = require("jsonwebtoken");
+//jshint esversion:6
+require('dotenv').config();
 const express = require("express");
+const bodyParser = require("body-parser");
+const ejs = require("ejs");
+const mongoose = require("mongoose");
+const session = require('express-session');
+const passport = require("passport");
+const passportLocalMongoose = require("passport-local-mongoose");
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const findOrCreate = require('mongoose-findorcreate');
 
-const router = express.Router();
-const bcrypt = require("bcryptjs");
+const app = express();
 
-const authenticate = require("../middleware/authenticate");
+app.use(express.static("public"));
+app.set('view engine', 'ejs');
+app.use(bodyParser.urlencoded({
+  extended: true
+}));
 
-const cookieParser = require("cookie-parser");
-router.use(cookieParser());
+app.use(session({
+  secret: "Our little secret.",
+  resave: false,
+  saveUninitialized: false
+}));
 
-require("../db/conn");
-const User = require("../model/userSchema");
-router.get("/", (req, res) => {
-  res.send(`Hello world from the server router js`);
+app.use(passport.initialize());
+app.use(passport.session());
+const DB = process.env.DATABASE
+const PORT = process.env.PORT
+mongoose.connect(DB, {useNewUrlParser: true});
+mongoose.set("useCreateIndex", true);
+
+const userSchema = new mongoose.Schema ({
+  email: String,
+  password: String,
+  googleId: String,
+  secret: String
 });
 
-router.post("/register", async (req, res) => {
-  const { name, email,favSinger, password, cpassword } = req.body;
-  if (
-    !name ||
-    !email ||
-    !favSinger ||
-    !password ||
-    !cpassword
-  ) {
-    return res.status(422).json({ error: "Plz fill all details" });
-  }
+userSchema.plugin(passportLocalMongoose);
+userSchema.plugin(findOrCreate);
 
-  try {
-    const userExist = await User.findOne({ email: email });
-    if (userExist) {
-      return res.status(422).json({ error: "User alreaady exists" });
-    } else if (password != cpassword) {
-      return res.status(422).json({ error: "Check password" });
+const User = new mongoose.model("User", userSchema);
+
+passport.use(User.createStrategy());
+
+passport.serializeUser(function(user, done) {
+  done(null, user.id);
+});
+
+passport.deserializeUser(function(id, done) {
+  User.findById(id, function(err, user) {
+    done(err, user);
+  });
+});
+
+passport.use(new GoogleStrategy({
+    clientID: process.env.CLIENT_ID,
+    clientSecret: process.env.CLIENT_SECRET,
+    callbackURL: "http://localhost:3000/auth/google/secrets",
+    userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo"
+  },
+  function(accessToken, refreshToken, profile, cb) {
+    console.log(profile);
+
+    User.findOrCreate({ googleId: profile.id }, function (err, user) {
+      return cb(err, user);
+    });
+  }
+));
+
+app.get("/", function(req, res){
+  res.render("home");
+});
+
+app.get("/auth/google",
+  passport.authenticate('google', { scope: ["profile"] })
+);
+
+app.get("/auth/google/secrets",
+  passport.authenticate('google', { failureRedirect: "/login" }),
+  function(req, res) {
+    // Successful authentication, redirect to secrets.
+    res.redirect("/secrets");
+  });
+
+app.get("/login", function(req, res){
+  res.render("login");
+});
+
+app.get("/register", function(req, res){
+  res.render("register");
+});
+
+app.get("/secrets", function(req, res){
+  User.find({"secret": {$ne: null}}, function(err, foundUsers){
+    if (err){
+      console.log(err);
     } else {
-      const user = new User({
-        name,
-        email,
-        phone,
-        interests,
-        city,
-        password,
-        cpassword,
-      });
-      await user.save();
-      res.status(201).json({ message: "User registered successfully" });
-    }
-  } catch (err) {
-    console.log(err);
-  }
-});
-
-//login router
-router.post("/signin", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: "invalid details" });
-    }
-    const userLogin = await User.findOne({ email: email });
-    if (userLogin) {
-      const isMatch = await bcrypt.compare(password, userLogin.password);
-      const token = await userLogin.generateAuthToken();
-      res.cookie("jwtoken", token, {
-        expires: new Date(Date.now() + 2589200000000),
-        httpOnly: false,
-      });
-
-      if (!isMatch) {
-        return res.status(400).json({ error: "Invalid credentials" });
-      } else {
-        res.json({ message: "user signin successful" });
+      if (foundUsers) {
+        res.render("secrets", {usersWithSecrets: foundUsers});
       }
+    }
+  });
+});
+
+app.get("/submit", function(req, res){
+  if (req.isAuthenticated()){
+    res.render("submit");
+  } else {
+    res.redirect("/login");
+  }
+});
+
+app.post("/submit", function(req, res){
+  const submittedSecret = req.body.secret;
+
+//Once the user is authenticated and their session gets saved, their user details are saved to req.user.
+  // console.log(req.user.id);
+
+  User.findById(req.user.id, function(err, foundUser){
+    if (err) {
+      console.log(err);
     } else {
-      return res.status(400).json({ error: "Invalid credentials" });
+      if (foundUser) {
+        foundUser.secret = submittedSecret;
+        foundUser.save(function(){
+          res.redirect("/secrets");
+        });
+      }
     }
-  } catch (err) {
-    console.log(err);
-  }
+  });
 });
 
-// about us ka page
-router.get("/about", authenticate, (req, res) => {
-  console.log("This is the about page, hello world from about server");
-  res.send(req.rootUser);
+app.get("/logout", function(req, res){
+  req.logout();
+  res.redirect("/");
 });
 
-// home ka page and contact page
-router.get("/getData", authenticate, (req, res) => {
-  console.log("This is the home page, hello world from about server");
-  res.send(req.rootUser);
-});
+app.post("/register", function(req, res){
 
-
-
-// contact us page
-router.post("/contact", authenticate, async (req, res) => {
-  try {
-    const { name, email, phone, message } = req.body;
-
-    if (!name || !email || !phone || !message) {
-      console.log("errorin conatact fomrm");
-      return res.json({ error: "Please fill all the contact fields" });
+  User.register({username: req.body.username}, req.body.password, function(err, user){
+    if (err) {
+      console.log(err);
+      res.redirect("/register");
+    } else {
+      passport.authenticate("local")(req, res, function(){
+        res.redirect("/secrets");
+      });
     }
-    const userContact = await User.findOne({ _id: req.userID });
-    if (userContact) {
-      const userMessage = await userContact.addMessage(
-        name,
-        email,
-        phone,
-        message
-      );
-      await userContact.save();
+  });
 
-      res.status(201).json({ message: "Feedback sent successfully" });
+});
+
+app.post("/login", function(req, res){
+
+  const user = new User({
+    username: req.body.username,
+    password: req.body.password
+  });
+
+  req.login(user, function(err){
+    if (err) {
+      console.log(err);
+    } else {
+      passport.authenticate("local")(req, res, function(){
+        res.redirect("/secrets");
+      });
     }
-  } catch (err) {
-    console.log(err);
-  }
+  });
+
 });
 
-//  logout page
-router.get("/logout", (req, res) => {
-  console.log("Hello my logout page");
-  res.clearCookie("jwtoken", { path: "/" });
-  res.status(200).send("User logout");
-});
 
-module.exports = router;
+
+
+
+
+
+app.listen(PORT, function() {
+  console.log(`Server started on port ${PORT}.`);
+});

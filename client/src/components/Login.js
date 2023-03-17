@@ -12,7 +12,7 @@ const Login = () => {
         </div>
         <div id="bg">
           <div className="container mainContainer mt-5">
-            <form>
+            <form method="POST">
               <div className="form-field">
                 <input type="email" placeholder="Email / Username" required />
               </div>
