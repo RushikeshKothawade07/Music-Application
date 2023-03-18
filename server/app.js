@@ -10,7 +10,7 @@ require("./db/conn");
 const User = require("./model/userSchema");
 const { initializingPassport } = require("./passportConfig");
 // app.use(require("./router/auth"));
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 5000;
 
 initializingPassport(passport)
 
