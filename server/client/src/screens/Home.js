@@ -26,6 +26,7 @@ const Home = () => {
         </Routes>
       </div>
     </Router>
+    
    </>
   )
 }
