@@ -8,6 +8,8 @@ const nCard = (val) => {
       imgsrc={val.imgsrc}
       title={val.title}
       link={val.link}
+
+      
     />
   );
 };
