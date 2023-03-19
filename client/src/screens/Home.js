@@ -16,8 +16,8 @@ const Home = () => {
       <div className="main-body">
         <Sidebar />
         <Routes>
-          <Route path="/" element={<Library />} />
-          <Route path="/feed" element={<Feed />} />
+          <Route path="/" element={<Feed />} />
+          <Route path="/Library" element={<Library />} />
           <Route path="/trending" element={<Trending />} />
           <Route path="/player" element={<Player />} />
           <Route path="/favorites" element={<Favourites />} />
